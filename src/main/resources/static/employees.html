@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Employee Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-6mYbQ0uzLTXhb0aM4b3TlxAz+Q6lK7p8ZzzVBbQATzBkpw8KJAA3l4t54+mcerhN" crossorigin="anonymous">
+    <link href="/css/styles.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/employees">Employee Manager</a>
+    </div>
+</nav>
+
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Employee Management</h1>
+            <p class="text-muted mb-0">Create, edit, and remove employees using the backend API.</p>
+        </div>
+    </div>
+
+    <div id="root"></div>
+</div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+    const { useState, useEffect } = React;
+
+    function App() {
+        const [employees, setEmployees] = useState([]);
+        const [form, setForm] = useState({ name: '', email: '', department: '', salary: '' });
+        const [editId, setEditId] = useState(null);
+        const [status, setStatus] = useState({ message: '', type: '' });
+        const [selectedEmployee, setSelectedEmployee] = useState(null);
+        const [searchTerm, setSearchTerm] = useState('');
+        const [departmentFilter, setDepartmentFilter] = useState('');
+        const [sortBy, setSortBy] = useState('name');
+
+        useEffect(() => {
+            loadEmployees();
+        }, []);
+
+        async function loadEmployees() {
+            try {
+                const response = await fetch('/api/employees');
+                const data = await response.json();
+                setEmployees(data);
+            } catch (error) {
+                showStatus('Failed to load employees.', 'danger');
+            }
+        }
+
+        function showStatus(message, type = 'success') {
+            setStatus({ message, type });
+            setTimeout(() => setStatus({ message: '', type: '' }), 3500);
+        }
+
+        function updateField(event) {
+            const { name, value } = event.target;
+            setForm(prev => ({ ...prev, [name]: value }));
+        }
+
+        async function handleSubmit(event) {
+            event.preventDefault();
+            const payload = {
+                name: form.name.trim(),
+                email: form.email.trim(),
+                department: form.department.trim(),
+                salary: parseFloat(form.salary) || 0
+            };
+
+            const url = editId ? `/api/employees/${editId}` : '/api/employees';
+            const method = editId ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Request failed');
+                }
+
+                await loadEmployees();
+                resetForm();
+                showStatus(editId ? 'Employee updated successfully.' : 'Employee added successfully.');
+            } catch (error) {
+                showStatus('Unable to save employee. Please try again.', 'danger');
+            }
+        }
+
+        function resetForm() {
+            setEditId(null);
+            setForm({ name: '', email: '', department: '', salary: '' });
+        }
+
+        function startEdit(employee) {
+            setEditId(employee.id);
+            setForm({
+                name: employee.name || '',
+                email: employee.email || '',
+                department: employee.department || '',
+                salary: employee.salary != null ? employee.salary.toString() : ''
+            });
+        }
+
+        async function removeEmployee(id) {
+            if (!window.confirm('Delete this employee?')) return;
+
+            try {
+                const response = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    throw new Error('Delete failed');
+                }
+                await loadEmployees();
+                showStatus('Employee removed successfully.');
+            } catch (error) {
+                showStatus('Unable to delete employee.', 'danger');
+            }
+        }
+
+        function getFilteredAndSortedEmployees() {
+            let filtered = employees.filter(emp => {
+                const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                    emp.email.toLowerCase().includes(searchTerm.toLowerCase());
+                const matchesDept = departmentFilter === '' || emp.department === departmentFilter;
+                return matchesSearch && matchesDept;
+            });
+
+            filtered.sort((a, b) => {
+                if (sortBy === 'name') return a.name.localeCompare(b.name);
+                if (sortBy === 'salary') return b.salary - a.salary;
+                if (sortBy === 'department') return a.department.localeCompare(b.department);
+                return 0;
+            });
+
+            return filtered;
+        }
+
+        function getStatistics() {
+            const total = employees.length;
+            const avgSalary = total > 0 ? (employees.reduce((sum, e) => sum + e.salary, 0) / total).toFixed(2) : 0;
+            const departments = [...new Set(employees.map(e => e.department))];
+            const maxSalary = total > 0 ? Math.max(...employees.map(e => e.salary)).toFixed(2) : 0;
+            return { total, avgSalary, departments: departments.length, maxSalary };
+        }
+
+        function exportToCSV() {
+            const headers = ['ID', 'Name', 'Email', 'Department', 'Salary'];
+            const rows = employees.map(e => [e.id, e.name, e.email, e.department, e.salary]);
+            const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `employees-${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+        }
+
+        const filteredEmployees = getFilteredAndSortedEmployees();
+        const stats = getStatistics();
+        const uniqueDepartments = [...new Set(employees.map(e => e.department))];
+
+        return React.createElement(
+            React.Fragment,
+            null,
+            status.message && React.createElement('div', { className: `alert alert-${status.type} alert-dismissible fade show`, role: 'alert' }, status.message, React.createElement('button', { type: 'button', className: 'btn-close', 'data-bs-dismiss': 'alert', 'aria-label': 'Close' })),
+            React.createElement('div', { className: 'employee-container' },
+                /* Left Column - Form */
+                React.createElement('div', { className: 'form-section' },
+                    React.createElement('h2', { className: 'section-title' }, '➕ Add / Edit Employee'),
+                    React.createElement('div', { className: 'form-card' },
+                        React.createElement('form', { onSubmit: handleSubmit },
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', { htmlFor: 'name', className: 'form-label' }, 'Full Name'),
+                                React.createElement('input', {
+                                    id: 'name',
+                                    name: 'name',
+                                    type: 'text',
+                                    className: 'form-control',
+                                    placeholder: 'Enter employee name',
+                                    value: form.name,
+                                    onChange: updateField,
+                                    required: true
+                                })
+                            ),
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', { htmlFor: 'email', className: 'form-label' }, 'Email Address'),
+                                React.createElement('input', {
+                                    id: 'email',
+                                    name: 'email',
+                                    type: 'email',
+                                    className: 'form-control',
+                                    placeholder: 'Enter email',
+                                    value: form.email,
+                                    onChange: updateField,
+                                    required: true
+                                })
+                            ),
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', { htmlFor: 'department', className: 'form-label' }, 'Department'),
+                                React.createElement('input', {
+                                    id: 'department',
+                                    name: 'department',
+                                    type: 'text',
+                                    className: 'form-control',
+                                    placeholder: 'e.g. Engineering, HR',
+                                    value: form.department,
+                                    onChange: updateField,
+                                    required: true
+                                })
+                            ),
+                            React.createElement('div', { className: 'form-group' },
+                                React.createElement('label', { htmlFor: 'salary', className: 'form-label' }, 'Annual Salary'),
+                                React.createElement('input', {
+                                    id: 'salary',
+                                    name: 'salary',
+                                    type: 'number',
+                                    step: '0.01',
+                                    className: 'form-control',
+                                    placeholder: 'Enter salary',
+                                    value: form.salary,
+                                    onChange: updateField,
+                                    required: true
+                                })
+                            ),
+                            React.createElement('div', { className: 'form-actions' },
+                                React.createElement('button', { type: 'submit', className: 'btn btn-primary btn-lg' }, editId ? '✏️ Update Employee' : '➕ Add Employee'),
+                                editId && React.createElement('button', { type: 'button', className: 'btn btn-secondary btn-lg', onClick: resetForm }, '✕ Cancel')
+                            )
+                        )
+                    )
+                ),
+                /* Middle Column - Employee List */
+                React.createElement('div', { className: 'list-section' },
+                    React.createElement('h2', { className: 'section-title' }, '📊 Employee List'),
+                    /* Statistics Dashboard */
+                    React.createElement('div', { className: 'stats-grid' },
+                        React.createElement('div', { className: 'stat-card' },
+                            React.createElement('div', { className: 'stat-value' }, stats.total),
+                            React.createElement('div', { className: 'stat-label' }, 'Total Employees')
+                        ),
+                        React.createElement('div', { className: 'stat-card' },
+                            React.createElement('div', { className: 'stat-value' }, '$' + stats.avgSalary),
+                            React.createElement('div', { className: 'stat-label' }, 'Avg Salary')
+                        ),
+                        React.createElement('div', { className: 'stat-card' },
+                            React.createElement('div', { className: 'stat-value' }, stats.departments),
+                            React.createElement('div', { className: 'stat-label' }, 'Departments')
+                        ),
+                        React.createElement('div', { className: 'stat-card' },
+                            React.createElement('div', { className: 'stat-value' }, '$' + stats.maxSalary),
+                            React.createElement('div', { className: 'stat-label' }, 'Max Salary')
+                        )
+                    ),
+                    /* Filters and Controls */
+                    React.createElement('div', { className: 'filter-controls' },
+                        React.createElement('div', { className: 'search-box' },
+                            React.createElement('input', {
+                                type: 'text',
+                                placeholder: '🔍 Search by name or email...',
+                                className: 'search-input',
+                                value: searchTerm,
+                                onChange: (e) => setSearchTerm(e.target.value)
+                            })
+                        ),
+                        React.createElement('div', { className: 'filter-group' },
+                            React.createElement('select', {
+                                className: 'filter-select',
+                                value: departmentFilter,
+                                onChange: (e) => setDepartmentFilter(e.target.value)
+                            },
+                                React.createElement('option', { value: '' }, 'All Departments'),
+                                uniqueDepartments.map(dept => React.createElement('option', { key: dept, value: dept }, dept))
+                            ),
+                            React.createElement('select', {
+                                className: 'filter-select',
+                                value: sortBy,
+                                onChange: (e) => setSortBy(e.target.value)
+                            },
+                                React.createElement('option', { value: 'name' }, 'Sort by Name'),
+                                React.createElement('option', { value: 'salary' }, 'Sort by Salary'),
+                                React.createElement('option', { value: 'department' }, 'Sort by Department')
+                            ),
+                            React.createElement('button', {
+                                className: 'btn-export',
+                                onClick: exportToCSV,
+                                title: 'Export to CSV'
+                            }, '📥 Export')
+                        )
+                    ),
+                    React.createElement('div', { className: 'employee-list' },
+                        filteredEmployees.length === 0
+                            ? React.createElement('div', { className: 'empty-state' },
+                                React.createElement('p', { className: 'empty-message' }, searchTerm || departmentFilter ? 'No employees match your search.' : 'No employees yet. Add one to get started!')
+                            )
+                            : filteredEmployees.map(employee => React.createElement('div', { 
+                                key: employee.id,
+                                className: `employee-item ${selectedEmployee?.id === employee.id ? 'active' : ''}`,
+                                onClick: () => setSelectedEmployee(employee)
+                            },
+                                React.createElement('div', { className: 'employee-avatar' }, employee.name.charAt(0).toUpperCase()),
+                                React.createElement('div', { className: 'employee-brief' },
+                                    React.createElement('h6', { className: 'employee-name' }, employee.name),
+                                    React.createElement('p', { className: 'employee-dept' }, employee.department)
+                                ),
+                                React.createElement('div', { className: 'employee-actions' },
+                                    React.createElement('button', { 
+                                        type: 'button', 
+                                        className: 'btn-icon edit-btn', 
+                                        title: 'Edit',
+                                        onClick: (e) => { e.stopPropagation(); startEdit(employee); } 
+                                    }, '✏️'),
+                                    React.createElement('button', { 
+                                        type: 'button', 
+                                        className: 'btn-icon delete-btn', 
+                                        title: 'Delete',
+                                        onClick: (e) => { e.stopPropagation(); removeEmployee(employee.id); } 
+                                    }, '🗑️')
+                                )
+                            ))
+                    )
+                ),
+                /* Right Column - Detail View */
+                React.createElement('div', { className: 'detail-section' },
+                    React.createElement('h2', { className: 'section-title' }, '👤 Employee Details'),
+                    selectedEmployee 
+                        ? React.createElement('div', { className: 'detail-card-large' },
+                            React.createElement('div', { className: 'detail-header' },
+                                React.createElement('div', { className: 'detail-avatar-large' }, selectedEmployee.name.charAt(0).toUpperCase()),
+                                React.createElement('div', { className: 'detail-title-section' },
+                                    React.createElement('h3', { className: 'detail-name' }, selectedEmployee.name),
+                                    React.createElement('p', { className: 'detail-role' }, selectedEmployee.department)
+                                )
+                            ),
+                            React.createElement('div', { className: 'detail-body' },
+                                React.createElement('div', { className: 'detail-field' },
+                                    React.createElement('label', null, 'Employee ID'),
+                                    React.createElement('p', null, '#' + selectedEmployee.id)
+                                ),
+                                React.createElement('div', { className: 'detail-field' },
+                                    React.createElement('label', null, 'Email Address'),
+                                    React.createElement('p', null,
+                                        React.createElement('a', { href: `mailto:${selectedEmployee.email}` }, selectedEmployee.email)
+                                    )
+                                ),
+                                React.createElement('div', { className: 'detail-field' },
+                                    React.createElement('label', null, 'Department'),
+                                    React.createElement('p', null, selectedEmployee.department)
+                                ),
+                                React.createElement('div', { className: 'detail-field salary-field' },
+                                    React.createElement('label', null, 'Annual Salary'),
+                                    React.createElement('p', { className: 'salary-amount' }, '$' + selectedEmployee.salary?.toFixed(2))
+                                )
+                            ),
+                            React.createElement('div', { className: 'detail-footer' },
+                                React.createElement('button', { 
+                                    type: 'button', 
+                                    className: 'btn btn-secondary', 
+                                    onClick: () => setSelectedEmployee(null) 
+                                }, 'Close Details')
+                            )
+                        )
+                        : React.createElement('div', { className: 'empty-detail' },
+                            React.createElement('div', { className: 'empty-icon' }, '👈'),
+                            React.createElement('p', { className: 'empty-text' }, 'Select an employee from the list to view details')
+                        )
+                )
+            )
+        );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-Gwman3ALO/etBqxnhs3U5WH+4T5fMVe7bD77ZwBzXGWCoAa5FEOwMZOO9bzuLzTg" crossorigin="anonymous"></script>
+</body>
+</html>
